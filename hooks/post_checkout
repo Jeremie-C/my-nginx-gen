@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -eu
+
+echo "🔵 post_checkout"
+source hooks/.config
+
+echo "✅ Install qemu + binfmt support"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+# it's an Ubuntu VM and you can install stuff.
+apt-get update
+apt-get install -y curl apt-utils binfmt-support jq moreutils
+
+# Sadly docker itself uses Docker EE 17.06 on Dockerhub which does not support
+# manifests.
+echo "✅ Install a fresh docker cli binary"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+
+curl https://download.docker.com/linux/static/stable/x86_64/docker-19.03.12.tgz | \
+  tar xvz docker/docker
+
+echo "✅ Build a usable config.json file"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+# Manifests are still experimental and enabled by a config file flag.
+mkdir -p ~/.docker
+jq --null-input --argjson auths "$DOCKERCFG" '. + {auths: $auths}' | \
+jq --arg experimental enabled '. + {experimental: $experimental}' | \
+sponge ~/.docker/config.json
+
+echo "✅ Get and Copy qemu binaries into docker build context"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+# The current setup copies the qemu binary into the image (see Dockerfile)
+QEMU_DOWNLOAD_URL="https://github.com/multiarch/qemu-user-static/releases/download"
+QEMU_LATEST_TAG=$(curl -s https://api.github.com/repos/multiarch/qemu-user-static/tags \
+    | grep 'name.*v[0-9]' \
+    | head -n 1 \
+    | cut -d '"' -f 4)
+
+for arch in ${build_architectures[@]}; do
+  QEMU_ARCH=${docker_qemu_arch_map[${arch}]}
+  if [[ ! -f qemu-${docker_qemu_arch_map[${arch}]}-static ]]; then
+    echo "[***] Downloading ${QEMU_DOWNLOAD_URL}/${QEMU_LATEST_TAG}/x86_64_qemu-${QEMU_ARCH}-static.tar.gz"
+    curl -sL "${QEMU_DOWNLOAD_URL}/${QEMU_LATEST_TAG}/x86_64_qemu-${QEMU_ARCH}-static.tar.gz" \
+      | tar xzv
+  else
+    echo "[***] qemu-${QEMU_ARCH}-static already exists. Skipping download."
+  fi
+done
+
+ls -la

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -eu
+
+echo "🔵 build"
+source hooks/.config
+
+echo "✅ Will build the following architecture: $verified_build_architectures"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+
+for arch in ${verified_build_architectures[@]}; do
+  echo "✅ building $arch"
+  echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+
+  BASE_IMAGE_PREFIX="${base_image_prefix_map[${arch}]}"
+  QEMU_ARCH="${docker_qemu_arch_map[${arch}]}"
+  IMAGE_TAG="${DOCKER_REPO}:${arch}-${DOCKER_TAG}"
+  DG_ARCH="${docker_gen_binary_map[${arch}]}"
+
+  docker build \
+    --build-arg BASE_IMAGE_PREFIX=${BASE_IMAGE_PREFIX} \
+    --build-arg QEMU_ARCH=${QEMU_ARCH} \
+    --build-arg DG_ARCH=${DG_ARCH} \
+    --build-arg BUILD_DATE=${BUILD_DATE} \
+    --build-arg BUILD_REF=${BUILD_REF} \
+    --build-arg BUILD_VERSION=${DOCKER_TAG} \
+    --file $DOCKERFILE_PATH \
+    --tag "${IMAGE_TAG}"  \
+    .
+done
+
+echo "✅ images built:"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+docker image ls
+
+# https://github.com/moby/moby/issues/36552
+#
+tempdir=$(mktemp -d -t yolo.XXXXXXXX)
+cd $tempdir
+
+for arch in ${verified_build_architectures[@]}; do
+  echo "✅ yolo fixing platform $arch"
+  echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+
+  IMAGE_TAG="${DOCKER_REPO}:${arch}-${DOCKER_TAG}"
+
+  manifest_arch=${docker_to_manifest_map[${arch}]}
+  variant_arch=${docker_to_variant_map[${arch}]}
+  docker save "${IMAGE_TAG}"| tar xv
+
+  for filename in */json; do
+    [ -e "$filename" ] || continue
+    jq --compact-output 'del(.architecture)' < "$filename" | sponge "$filename"
+  done
+
+  for filename in *.json; do
+    [ -e "$filename" ] || continue
+    ! [ $filename = "manifest.json" ] || continue
+
+    jq --arg architecture "$manifest_arch" \
+       --compact-output '.architecture=$architecture' < "$filename" | sponge "$filename"
+
+    if [ -n "${variant_arch}" ]; then
+      jq --arg variant "$variant_arch" \
+         --compact-output '.variant=$variant' < "$filename" | sponge "$filename"
+    fi
+  done
+
+  tar cv . | docker load
+  rm -rf $tempdir/*
+done
+
+trap "exit 1"          HUP INT PIPE QUIT TERM
+trap "rm -rf $tempdir" EXIT

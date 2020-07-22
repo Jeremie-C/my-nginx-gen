@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -eu
+
+echo "🔵 push"
+source hooks/.config
+
+# 1. push all images
+IMAGE_NAME="${IMAGE_NAME//index.docker.io\/}"
+
+for arch in ${verified_build_architectures[@]}; do
+  IMAGE_TAG="${DOCKER_REPO}:${arch}-${DOCKER_TAG}"
+  echo "✅ Pushing ${IMAGE_TAG}"
+  echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+  echo
+  docker push ${IMAGE_TAG}
+done
+
+docker image ls
+
+# 2. build and push manifest
+MANIFEST_ALL="${DOCKER_REPO}:${MANIF_ALL}"
+manifests=""
+
+for arch in ${verified_build_architectures[@]}; do
+  IMAGE_TAG="${DOCKER_REPO}:${arch}-${DOCKER_TAG}"
+  manifests="${manifests} ${IMAGE_TAG}"
+done
+
+echo "✅ Creating manifest ${IMAGE_NAME}"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+docker manifest create ${IMAGE_NAME} \
+                            $manifests
+echo
+
+echo "✅ Creating manifest ${MANIFEST_ALL}"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+docker manifest create ${MANIFEST_ALL} \
+                            $manifests
+echo
+
+echo "✅ Annotating manifest"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+for arch in ${verified_build_architectures[@]}; do
+  IMAGE_TAG="${DOCKER_REPO}:${arch}-${DOCKER_TAG}"
+  # Version Manifest
+  if [ -n "${docker_to_variant_map[${arch}]}" ]; then
+    docker manifest annotate ${IMAGE_NAME} \
+    ${IMAGE_TAG} \
+    --os linux \
+    --arch ${docker_to_manifest_map[${arch}]} \
+    --variant ${docker_to_variant_map[${arch}]}
+  else
+    docker manifest annotate ${IMAGE_NAME} \
+    ${IMAGE_TAG} \
+    --os linux \
+    --arch ${docker_to_manifest_map[${arch}]}
+  fi
+  # Manifest Global
+  if [ -n "${docker_to_variant_map[${arch}]}" ]; then
+    docker manifest annotate ${MANIFEST_ALL} \
+    ${IMAGE_TAG} \
+    --os linux \
+    --arch ${docker_to_manifest_map[${arch}]} \
+    --variant ${docker_to_variant_map[${arch}]}
+  else
+    docker manifest annotate ${MANIFEST_ALL} \
+    ${IMAGE_TAG} \
+    --os linux \
+    --arch ${docker_to_manifest_map[${arch}]}
+  fi
+done
+
+echo "✅ Inspecting manifest ${IMAGE_NAME}"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+docker manifest inspect ${IMAGE_NAME}
+echo
+
+echo "✅ Pushing manifest ${IMAGE_NAME}"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+docker manifest push --purge "${IMAGE_NAME}"
+echo
+
+echo "✅ Inspecting manifest ${MANIFEST_ALL}"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+docker manifest inspect ${MANIFEST_ALL}
+echo
+
+echo "✅ Pushing manifest ${MANIFEST_ALL}"
+echo "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+docker manifest push --purge "${MANIFEST_ALL}"
+echo
+
+echo
+echo "😊"
